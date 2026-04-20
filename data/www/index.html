@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP32C3 Router</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Orbitron:wght@700;900&display=swap');
+
+  :root {
+    --bg:       #080c10;
+    --surface:  #0d1117;
+    --border:   #1e2d3d;
+    --border2:  #243447;
+    --text:     #c9d8e8;
+    --muted:    #4a6076;
+    --accent:   #00d4ff;
+    --accent2:  #0090cc;
+    --green:    #00ff88;
+    --red:      #ff3355;
+    --orange:   #ff8c00;
+    --purple:   #bd5aff;
+    --glow:     0 0 16px rgba(0,212,255,0.3);
+    --glow-g:   0 0 16px rgba(0,255,136,0.3);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,.03) 2px, rgba(0,0,0,.03) 4px);
+  }
+
+  /* ── Header ───────────────────────────────────────────────────────────── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.1rem; font-weight: 900;
+    color: var(--accent);
+    text-shadow: var(--glow);
+    letter-spacing: 0.1em;
+  }
+  .logo span { color: var(--text); font-weight: 700; }
+  .header-status { display: flex; gap: 16px; align-items: center; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+    border: 1px solid;
+  }
+  .pill.up   { border-color: var(--green); color: var(--green); }
+  .pill.down { border-color: var(--red);   color: var(--red);   }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: blink 1.4s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  /* ── Nav ──────────────────────────────────────────────────────────────── */
+  nav {
+    display: flex; gap: 2px; padding: 0 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  nav button {
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); font-family: inherit; font-size: 12px;
+    padding: 10px 16px; border-bottom: 2px solid transparent;
+    transition: all .2s; white-space: nowrap;
+  }
+  nav button:hover   { color: var(--text); }
+  nav button.active  { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── Layout ───────────────────────────────────────────────────────────── */
+  main { padding: 20px 24px; max-width: 1400px; }
+
+  .page { display: none; }
+  .page.active { display: block; animation: fadeIn .2s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+
+  /* ── Cards ────────────────────────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px; padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.7rem; font-weight: 700;
+    color: var(--accent); letter-spacing: 0.12em;
+    text-transform: uppercase; margin-bottom: 16px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--border);
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap: 12px; }
+  .stat-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px; padding: 14px;
+  }
+  .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+  .stat-value { font-size: 1.5rem; font-weight: 700; color: var(--accent); font-family: 'Orbitron', sans-serif; }
+  .stat-value.green  { color: var(--green); }
+  .stat-value.red    { color: var(--red); }
+  .stat-value.orange { color: var(--orange); }
+  .stat-sub { font-size: 10px; color: var(--muted); margin-top: 3px; }
+
+  /* ── Table ────────────────────────────────────────────────────────────── */
+  .tbl-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th {
+    background: var(--bg); color: var(--muted);
+    padding: 8px 10px; text-align: left;
+    font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+  }
+  td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: rgba(0,212,255,.04); }
+  tr:last-child td { border-bottom: none; }
+
+  /* ── Badges ───────────────────────────────────────────────────────────── */
+  .badge {
+    display: inline-block; padding: 2px 7px; border-radius: 3px;
+    font-size: 10px; font-weight: 700; letter-spacing: .04em;
+  }
+  .badge-green  { background: rgba(0,255,136,.15); color: var(--green); border: 1px solid rgba(0,255,136,.3); }
+  .badge-red    { background: rgba(255,51,85,.15);  color: var(--red);   border: 1px solid rgba(255,51,85,.3); }
+  .badge-orange { background: rgba(255,140,0,.15);  color: var(--orange);border: 1px solid rgba(255,140,0,.3); }
+  .badge-blue   { background: rgba(0,212,255,.15);  color: var(--accent);border: 1px solid rgba(0,212,255,.3); }
+  .badge-purple { background: rgba(189,90,255,.15); color: var(--purple);border: 1px solid rgba(189,90,255,.3); }
+
+  /* ── Forms ────────────────────────────────────────────────────────────── */
+  .form-grid { display: grid; grid-template-columns: 180px 1fr; gap: 10px 16px; align-items: center; max-width: 600px; }
+  label { font-size: 11px; color: var(--muted); }
+  input[type=text], input[type=password], input[type=number], select, textarea {
+    background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); font-family: inherit; font-size: 12px;
+    padding: 7px 10px; border-radius: 4px; width: 100%;
+    outline: none; transition: border-color .2s;
+  }
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,212,255,.1);
+  }
+  input[type=checkbox] { width: auto; cursor: pointer; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; }
+
+  /* ── Buttons ──────────────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 18px; border-radius: 4px; border: none;
+    font-family: inherit; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all .15s; text-transform: uppercase; letter-spacing: .05em;
+  }
+  .btn-primary { background: var(--accent2); color: #fff; }
+  .btn-primary:hover { background: var(--accent); box-shadow: var(--glow); }
+  .btn-success { background: rgba(0,255,136,.2); color: var(--green); border: 1px solid rgba(0,255,136,.4); }
+  .btn-success:hover { background: rgba(0,255,136,.3); box-shadow: var(--glow-g); }
+  .btn-danger  { background: rgba(255,51,85,.2);  color: var(--red);   border: 1px solid rgba(255,51,85,.4); }
+  .btn-danger:hover  { background: rgba(255,51,85,.35); }
+  .btn-ghost   { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-ghost:hover   { color: var(--text); border-color: var(--border2); }
+  .btn-sm { padding: 4px 10px; font-size: 11px; }
+
+  .row-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+
+  /* ── VPN specific ─────────────────────────────────────────────────────── */
+  .vpn-status-box {
+    display: flex; align-items: center; gap: 16px; padding: 14px 20px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 20px;
+  }
+  .vpn-icon { font-size: 1.8rem; }
+  .vpn-text h3 { font-family: 'Orbitron', sans-serif; font-size: 0.8rem; color: var(--accent); }
+  .vpn-text p  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* ── Firewall log ─────────────────────────────────────────────────────── */
+  .log-console {
+    background: #020507; border: 1px solid var(--border);
+    border-radius: 6px; padding: 14px; font-size: 11px;
+    height: 300px; overflow-y: auto; line-height: 1.8;
+  }
+  .log-console .log-allow { color: var(--green); }
+  .log-console .log-drop  { color: var(--red); }
+
+  /* ── Toast ────────────────────────────────────────────────────────────── */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px; z-index: 9998;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); padding: 10px 18px; border-radius: 6px;
+    font-size: 12px; box-shadow: 0 4px 24px rgba(0,0,0,.6);
+    transform: translateY(60px); opacity: 0; transition: all .25s;
+    pointer-events: none; max-width: 320px;
+  }
+  #toast.show { transform: none; opacity: 1; }
+  #toast.ok   { border-color: var(--green); }
+  #toast.err  { border-color: var(--red); }
+
+  /* ── Loading spinner ──────────────────────────────────────────────────── */
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">ESP32<span>C3</span> ROUTER</div>
+  <div class="header-status">
+    <div class="pill up" id="h-wan"><span class="dot"></span>WAN</div>
+    <div class="pill up" id="h-vpn"><span class="dot"></span>VPN</div>
+    <div style="color:var(--muted);font-size:11px" id="h-uptime">--</div>
+  </div>
+</header>
+
+<nav>
+  <button class="active" onclick="goto('overview')">Overview</button>
+  <button onclick="goto('wan')">WAN</button>
+  <button onclick="goto('lan')">LAN / WiFi</button>
+  <button onclick="goto('dhcp')">DHCP</button>
+  <button onclick="goto('firewall')">Firewall</button>
+  <button onclick="goto('nat')">NAT Table</button>
+  <button onclick="goto('portfwd')">Port Fwd</button>
+  <button onclick="goto('vpn')">WireGuard</button>
+  <button onclick="goto('system')">System</button>
+</nav>
+
+<main>
+
+<!-- ── Overview ──────────────────────────────────────────────────────────── -->
+<div id="page-overview" class="page active">
+  <div class="card">
+    <div class="card-title">System Overview</div>
+    <div class="grid" id="ov-stats">
+      <div class="stat-box"><div class="stat-label">WAN IP</div><div class="stat-value" id="ov-wan-ip" style="font-size:1rem">--</div></div>
+      <div class="stat-box"><div class="stat-label">LAN IP</div><div class="stat-value" id="ov-lan-ip" style="font-size:1rem">--</div></div>
+      <div class="stat-box"><div class="stat-label">WiFi Clients</div><div class="stat-value green" id="ov-clients">--</div></div>
+      <div class="stat-box"><div class="stat-label">NAT Sessions</div><div class="stat-value" id="ov-nat">--</div></div>
+      <div class="stat-box"><div class="stat-label">DHCP Leases</div><div class="stat-value" id="ov-dhcp">--</div></div>
+      <div class="stat-box"><div class="stat-label">Free Heap</div><div class="stat-value" id="ov-heap" style="font-size:1rem">--</div></div>
+      <div class="stat-box"><div class="stat-label">Uptime</div><div class="stat-value" id="ov-uptime" style="font-size:1rem">--</div></div>
+      <div class="stat-box"><div class="stat-label">VPN</div><div class="stat-value" id="ov-vpn" style="font-size:1rem">--</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">DHCP Leases</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>MAC</th><th>IP</th><th>Hostname</th><th>TTL</th><th>Type</th></tr></thead>
+      <tbody id="ov-leases"><tr><td colspan="5" style="color:var(--muted);text-align:center">Loading...</td></tr></tbody>
+    </table></div>
+  </div>
+</div>
+
+<!-- ── WAN ──────────────────────────────────────────────────────────────── -->
+<div id="page-wan" class="page">
+  <div class="card">
+    <div class="card-title">WAN / Ethernet Settings</div>
+    <div class="form-grid">
+      <label>DHCP</label><div class="checkbox-row"><input type="checkbox" id="wan-dhcp" checked><span>Obtain IP automatically</span></div>
+      <label>Static IP</label><input type="text" id="wan-ip" placeholder="192.168.1.2">
+      <label>Subnet Mask</label><input type="text" id="wan-mask" placeholder="255.255.255.0">
+      <label>Gateway</label><input type="text" id="wan-gw" placeholder="192.168.1.1">
+      <label>Primary DNS</label><input type="text" id="wan-dns1" placeholder="8.8.8.8">
+      <label>Secondary DNS</label><input type="text" id="wan-dns2" placeholder="8.8.4.4">
+    </div>
+    <div class="row-btns">
+      <button class="btn btn-primary" onclick="saveWan()">Apply WAN Settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── LAN ──────────────────────────────────────────────────────────────── -->
+<div id="page-lan" class="page">
+  <div class="card">
+    <div class="card-title">LAN / WiFi AP Settings</div>
+    <div class="form-grid">
+      <label>Router LAN IP</label><input type="text" id="lan-ip" placeholder="192.168.4.1">
+      <label>Subnet Mask</label><input type="text" id="lan-mask" placeholder="255.255.255.0">
+      <label>WiFi SSID</label><input type="text" id="lan-ssid" placeholder="ESP32Router">
+      <label>WiFi Password</label><input type="password" id="lan-pass" placeholder="••••••••••">
+      <label>Channel</label><input type="number" id="lan-channel" min="1" max="13" placeholder="6">
+      <label>Max Clients</label><input type="number" id="lan-max-clients" min="1" max="20" placeholder="8">
+    </div>
+    <div class="row-btns">
+      <button class="btn btn-primary" onclick="saveLan()">Apply LAN Settings</button>
+    </div>
+    <p style="color:var(--muted);font-size:11px;margin-top:12px">⚠ Changing WiFi settings will disconnect all LAN clients.</p>
+  </div>
+</div>
+
+<!-- ── DHCP ─────────────────────────────────────────────────────────────── -->
+<div id="page-dhcp" class="page">
+  <div class="card">
+    <div class="card-title">DHCP Server Config</div>
+    <div class="form-grid">
+      <label>DHCP Enabled</label><div class="checkbox-row"><input type="checkbox" id="dhcp-en" checked></div>
+      <label>Pool Start</label><input type="text" id="dhcp-start" placeholder="192.168.4.10">
+      <label>Pool End</label><input type="text" id="dhcp-end" placeholder="192.168.4.50">
+      <label>Lease Time (sec)</label><input type="number" id="dhcp-lease" placeholder="3600">
+      <label>Domain</label><input type="text" id="dhcp-domain" placeholder="lan">
+    </div>
+    <div class="row-btns">
+      <button class="btn btn-primary" onclick="saveDhcp()">Apply DHCP Settings</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Active Leases</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>MAC</th><th>IP</th><th>Hostname</th><th>TTL (s)</th><th>Type</th></tr></thead>
+      <tbody id="dhcp-leases-tbl"><tr><td colspan="5" style="color:var(--muted);text-align:center">Loading...</td></tr></tbody>
+    </table></div>
+    <div class="row-btns"><button class="btn btn-ghost btn-sm" onclick="loadDhcpLeases()">↻ Refresh</button></div>
+  </div>
+</div>
+
+<!-- ── Firewall ──────────────────────────────────────────────────────────── -->
+<div id="page-firewall" class="page">
+  <div class="card">
+    <div class="card-title">Firewall Rules <span style="color:var(--muted);font-weight:400;font-size:10px">(evaluated top-down, first match wins)</span></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>#</th><th>En</th><th>Action</th><th>Dir</th><th>Proto</th><th>Dst IP</th><th>Port Range</th><th>Log</th><th>Del</th></tr></thead>
+      <tbody id="fw-rules-tbl"><tr><td colspan="9" style="color:var(--muted);text-align:center">Loading...</td></tr></tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Add Rule</div>
+    <div class="form-grid">
+      <label>Action</label>
+      <select id="new-fw-action"><option value="0">ALLOW</option><option value="1">DENY</option><option value="2">REJECT</option></select>
+      <label>Direction</label>
+      <select id="new-fw-dir"><option value="0">IN</option><option value="1">OUT</option><option value="2">FORWARD</option></select>
+      <label>Protocol</label>
+      <select id="new-fw-proto"><option value="0">ANY</option><option value="6">TCP</option><option value="17">UDP</option><option value="1">ICMP</option></select>
+      <label>Dst IP (0.0.0.0=any)</label><input type="text" id="new-fw-dst-ip" placeholder="0.0.0.0">
+      <label>Dst Port Min</label><input type="number" id="new-fw-dport-lo" placeholder="0" min="0" max="65535">
+      <label>Dst Port Max</label><input type="number" id="new-fw-dport-hi" placeholder="0" min="0" max="65535">
+      <label>Log Matches</label><div class="checkbox-row"><input type="checkbox" id="new-fw-log"></div>
+    </div>
+    <div class="row-btns"><button class="btn btn-success" onclick="addFwRule()">+ Add Rule</button></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Firewall Log</div>
+    <div class="log-console" id="fw-log">Loading...</div>
+    <div class="row-btns"><button class="btn btn-ghost btn-sm" onclick="loadFwLog()">↻ Refresh Log</button></div>
+  </div>
+</div>
+
+<!-- ── NAT Table ─────────────────────────────────────────────────────────── -->
+<div id="page-nat" class="page">
+  <div class="card">
+    <div class="card-title">NAT Statistics</div>
+    <div class="grid" id="nat-stat-grid">
+      <div class="stat-box"><div class="stat-label">Active Sessions</div><div class="stat-value" id="ns-active">--</div></div>
+      <div class="stat-box"><div class="stat-label">Pkts LAN→WAN</div><div class="stat-value green" id="ns-out">--</div></div>
+      <div class="stat-box"><div class="stat-label">Pkts WAN→LAN</div><div class="stat-value" id="ns-in">--</div></div>
+      <div class="stat-box"><div class="stat-label">Dropped (FW)</div><div class="stat-value red" id="ns-dfw">--</div></div>
+      <div class="stat-box"><div class="stat-label">Dropped (NAT)</div><div class="stat-value orange" id="ns-dnat">--</div></div>
+      <div class="stat-box"><div class="stat-label">Bytes TX</div><div class="stat-value" id="ns-tx" style="font-size:1rem">--</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">NAT Session Table</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>LAN IP</th><th>LAN Port</th><th>WAN Port</th><th>Dst IP</th><th>Dst Port</th><th>Proto</th><th>Age</th></tr></thead>
+      <tbody id="nat-tbl"><tr><td colspan="7" style="color:var(--muted);text-align:center">Loading...</td></tr></tbody>
+    </table></div>
+    <div class="row-btns">
+      <button class="btn btn-ghost btn-sm" onclick="loadNat()">↻ Refresh</button>
+      <button class="btn btn-danger btn-sm" onclick="flushNat()">⚡ Flush Table</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Port Forward ──────────────────────────────────────────────────────── -->
+<div id="page-portfwd" class="page">
+  <div class="card">
+    <div class="card-title">Port Forwarding Rules</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>#</th><th>En</th><th>Proto</th><th>Ext Port</th><th>Int IP</th><th>Int Port</th><th>Del</th></tr></thead>
+      <tbody id="pf-tbl"><tr><td colspan="7" style="color:var(--muted);text-align:center">Loading...</td></tr></tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Add Port Forward</div>
+    <div class="form-grid">
+      <label>Protocol</label>
+      <select id="pf-proto"><option value="6">TCP</option><option value="17">UDP</option></select>
+      <label>External Port</label><input type="number" id="pf-ext" placeholder="8080" min="1" max="65535">
+      <label>Internal IP</label><input type="text" id="pf-int-ip" placeholder="192.168.4.10">
+      <label>Internal Port</label><input type="number" id="pf-int-port" placeholder="80" min="1" max="65535">
+    </div>
+    <div class="row-btns"><button class="btn btn-success" onclick="addPortFwd()">+ Add Rule</button></div>
+  </div>
+</div>
+
+<!-- ── VPN ──────────────────────────────────────────────────────────────── -->
+<div id="page-vpn" class="page">
+  <div class="card">
+    <div class="vpn-status-box">
+      <div class="vpn-icon" id="vpn-icon">🔒</div>
+      <div class="vpn-text">
+        <h3 id="vpn-status-title">WireGuard — Checking...</h3>
+        <p id="vpn-status-sub">--</p>
+      </div>
+    </div>
+    <div class="card-title">WireGuard Configuration</div>
+    <div class="form-grid">
+      <label>Enabled</label><div class="checkbox-row"><input type="checkbox" id="vpn-en"></div>
+      <label>Server</label><input type="text" id="vpn-server" placeholder="vpn.example.com">
+      <label>Port</label><input type="number" id="vpn-port" placeholder="51820">
+      <label>Private Key</label><input type="text" id="vpn-privkey" placeholder="base64 private key">
+      <label>Peer Public Key</label><input type="text" id="vpn-pubkey" placeholder="base64 public key">
+      <label>Preshared Key</label><input type="text" id="vpn-psk" placeholder="optional">
+      <label>Tunnel IP</label><input type="text" id="vpn-tunnel-ip" placeholder="10.0.0.2/24">
+      <label>VPN DNS</label><input type="text" id="vpn-dns" placeholder="1.1.1.1">
+      <label>Allowed IPs</label><input type="text" id="vpn-allowed" placeholder="0.0.0.0/0">
+      <label>Kill Switch</label><div class="checkbox-row"><input type="checkbox" id="vpn-ks"><span>Block WAN if VPN drops</span></div>
+    </div>
+    <div class="row-btns">
+      <button class="btn btn-primary" onclick="saveVpn()">Save Config</button>
+      <button class="btn btn-success" onclick="vpnConnect()">▶ Connect</button>
+      <button class="btn btn-danger"  onclick="vpnDisconnect()">■ Disconnect</button>
+    </div>
+    <p style="color:var(--muted);font-size:11px;margin-top:12px">Requires WireGuard-ESP32 library by ciniml. Keys in base64 WireGuard format.</p>
+  </div>
+</div>
+
+<!-- ── System ────────────────────────────────────────────────────────────── -->
+<div id="page-system" class="page">
+  <div class="card">
+    <div class="card-title">System Information</div>
+    <div class="tbl-wrap"><table>
+      <tbody id="sysinfo-tbl"><tr><td colspan="2" style="color:var(--muted)">Loading...</td></tr></tbody>
+    </table></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Administration</div>
+    <div class="row-btns">
+      <button class="btn btn-danger" onclick="if(confirm('Reboot?')) doPost('/api/reboot')">↺ Reboot</button>
+      <button class="btn btn-danger" onclick="if(confirm('Factory reset? All config will be lost!')) doPost('/api/factory')">⚠ Factory Reset</button>
+    </div>
+  </div>
+</div>
+
+</main>
+<div id="toast"></div>
+
+<script>
+// ── Auth ──────────────────────────────────────────────────────────────────────
+let AUTH = 'Basic ' + btoa('admin:admin');
+
+async function apiFetch(url, opts = {}) {
+  opts.headers = { ...opts.headers, 'Authorization': AUTH, 'Content-Type': 'application/json' };
+  const r = await fetch(url, opts);
+  if (r.status === 401) { alert('Authentication required'); return null; }
+  return r;
+}
+async function apiGet(url)  { const r = await apiFetch(url); return r ? r.json() : null; }
+async function doPost(url, body = {}) {
+  const r = await apiFetch(url, { method: 'POST', body: JSON.stringify(body) });
+  if (r) { const d = await r.json(); toast(d.ok ? 'Saved ✓' : (d.error || 'Error'), d.ok ? 'ok' : 'err'); return d; }
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function toast(msg, type = 'ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.className = 'show ' + type;
+  setTimeout(() => el.className = '', 2800);
+}
+
+// ── Nav ───────────────────────────────────────────────────────────────────────
+function goto(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  const btns = document.querySelectorAll('nav button');
+  btns.forEach(b => { if (b.getAttribute('onclick').includes("'"+page+"'")) b.classList.add('active'); });
+  loadPage(page);
+}
+
+// ── Page loaders ──────────────────────────────────────────────────────────────
+function loadPage(p) {
+  switch(p) {
+    case 'overview': loadOverview(); break;
+    case 'wan':      loadWan();      break;
+    case 'lan':      loadLan();      break;
+    case 'dhcp':     loadDhcp();     break;
+    case 'firewall': loadFw();       break;
+    case 'nat':      loadNat();      break;
+    case 'portfwd':  loadPortFwd();  break;
+    case 'vpn':      loadVpn();      break;
+    case 'system':   loadSysinfo();  break;
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmtBytes(b) {
+  if (b > 1e6) return (b/1e6).toFixed(1) + ' MB';
+  if (b > 1e3) return (b/1e3).toFixed(1) + ' KB';
+  return b + ' B';
+}
+function fmtUptime(ms) {
+  const s = Math.floor(ms/1000), h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+  return h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(ss).padStart(2,'0') + 's';
+}
+function badge(text, color) {
+  return `<span class="badge badge-${color}">${text}</span>`;
+}
+
+// ── Overview ──────────────────────────────────────────────────────────────────
+async function loadOverview() {
+  const d = await apiGet('/api/status'); if (!d) return;
+  document.getElementById('ov-wan-ip').textContent  = d.wan_ip || '--';
+  document.getElementById('ov-lan-ip').textContent  = d.lan_ip || '--';
+  document.getElementById('ov-clients').textContent = d.clients;
+  document.getElementById('ov-nat').textContent     = d.nat_entries;
+  document.getElementById('ov-dhcp').textContent    = d.dhcp_leases;
+  document.getElementById('ov-heap').textContent    = fmtBytes(d.free_heap);
+  document.getElementById('ov-uptime').textContent  = fmtUptime(d.uptime_ms);
+  document.getElementById('ov-vpn').textContent     = d.vpn_connected ? 'UP' : 'DOWN';
+  document.getElementById('ov-vpn').className       = 'stat-value ' + (d.vpn_connected ? 'green' : 'red');
+  document.getElementById('h-uptime').textContent   = fmtUptime(d.uptime_ms);
+  document.getElementById('h-wan').className        = 'pill ' + (d.wan_link ? 'up' : 'down');
+  document.getElementById('h-vpn').className        = 'pill ' + (d.vpn_connected ? 'up' : 'down');
+  await loadDhcpLeases('ov-leases');
+}
+
+async function loadDhcpLeases(targetId = 'dhcp-leases-tbl') {
+  const d = await apiGet('/api/dhcp/leases'); if (!d) return;
+  const tbl = document.getElementById(targetId);
+  if (!d.length) { tbl.innerHTML = '<tr><td colspan="5" style="color:var(--muted);text-align:center">No active leases</td></tr>'; return; }
+  tbl.innerHTML = d.map(l =>
+    `<tr><td>${l.mac}</td><td>${l.ip}</td><td>${l.hostname||'—'}</td><td>${l.ttl}</td>
+    <td>${l.static ? badge('STATIC','purple') : badge('DYNAMIC','blue')}</td></tr>`
+  ).join('');
+}
+
+// ── WAN ───────────────────────────────────────────────────────────────────────
+async function loadWan() {
+  const d = await apiGet('/api/wan'); if (!d) return;
+  document.getElementById('wan-dhcp').checked = d.dhcp;
+  document.getElementById('wan-ip').value   = d.ip;
+  document.getElementById('wan-mask').value = d.mask;
+  document.getElementById('wan-gw').value   = d.gw;
+  document.getElementById('wan-dns1').value = d.dns1;
+  document.getElementById('wan-dns2').value = d.dns2;
+}
+async function saveWan() {
+  await doPost('/api/wan', {
+    dhcp: document.getElementById('wan-dhcp').checked,
+    ip:   document.getElementById('wan-ip').value,
+    mask: document.getElementById('wan-mask').value,
+    gw:   document.getElementById('wan-gw').value,
+    dns1: document.getElementById('wan-dns1').value,
+    dns2: document.getElementById('wan-dns2').value,
+  });
+}
+
+// ── LAN ───────────────────────────────────────────────────────────────────────
+async function loadLan() {
+  const d = await apiGet('/api/lan'); if (!d) return;
+  document.getElementById('lan-ip').value          = d.ip;
+  document.getElementById('lan-mask').value        = d.mask;
+  document.getElementById('lan-ssid').value        = d.ssid;
+  document.getElementById('lan-channel').value     = d.channel;
+  document.getElementById('lan-max-clients').value = d.max_clients;
+}
+async function saveLan() {
+  const body = {
+    ip: document.getElementById('lan-ip').value,
+    mask: document.getElementById('lan-mask').value,
+    ssid: document.getElementById('lan-ssid').value,
+    channel: +document.getElementById('lan-channel').value,
+    max_clients: +document.getElementById('lan-max-clients').value,
+  };
+  const pass = document.getElementById('lan-pass').value;
+  if (pass) body.pass = pass;
+  await doPost('/api/lan', body);
+}
+
+// ── DHCP ─────────────────────────────────────────────────────────────────────
+async function loadDhcp() {
+  const d = await apiGet('/api/dhcp/config'); if (!d) return;
+  document.getElementById('dhcp-en').checked  = d.enabled;
+  document.getElementById('dhcp-start').value = d.start;
+  document.getElementById('dhcp-end').value   = d.end;
+  document.getElementById('dhcp-lease').value = d.lease_sec;
+  document.getElementById('dhcp-domain').value = d.domain;
+  await loadDhcpLeases();
+}
+async function saveDhcp() {
+  await doPost('/api/dhcp/config', {
+    enabled:   document.getElementById('dhcp-en').checked,
+    start:     document.getElementById('dhcp-start').value,
+    end:       document.getElementById('dhcp-end').value,
+    lease_sec: +document.getElementById('dhcp-lease').value,
+    domain:    document.getElementById('dhcp-domain').value,
+  });
+}
+
+// ── Firewall ──────────────────────────────────────────────────────────────────
+async function loadFw() {
+  const d = await apiGet('/api/fw/rules'); if (!d) return;
+  const tbl = document.getElementById('fw-rules-tbl');
+  if (!d.length) { tbl.innerHTML = '<tr><td colspan="9" style="color:var(--muted);text-align:center">No rules</td></tr>'; return; }
+  const actionBadge = a => a === 'ALLOW' ? badge('ALLOW','green') : a === 'DENY' ? badge('DENY','red') : badge('REJECT','orange');
+  tbl.innerHTML = d.map(r =>
+    `<tr>
+      <td>${r.id}</td>
+      <td>${r.en ? badge('ON','green') : badge('OFF','orange')}</td>
+      <td>${actionBadge(r.action)}</td>
+      <td>${badge(r.dir,'blue')}</td>
+      <td>${badge(r.proto,'purple')}</td>
+      <td>${r.dst_ip}</td>
+      <td>${r.dport_min||0}${r.dport_max > r.dport_min ? '–'+r.dport_max : ''}</td>
+      <td>${r.log ? '✓' : '—'}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="delFwRule(${r.id})">✕</button></td>
+    </tr>`
+  ).join('');
+  await loadFwLog();
+}
+async function addFwRule() {
+  const dip = document.getElementById('new-fw-dst-ip').value;
+  await doPost('/api/fw/add', {
+    en:      true,
+    action:  +document.getElementById('new-fw-action').value,
+    dir:     +document.getElementById('new-fw-dir').value,
+    proto:   +document.getElementById('new-fw-proto').value,
+    dst_ip:  dip || '0.0.0.0',
+    dport_min: +document.getElementById('new-fw-dport-lo').value,
+    dport_max: +document.getElementById('new-fw-dport-hi').value,
+    log:    document.getElementById('new-fw-log').checked,
+  });
+  await loadFw();
+}
+async function delFwRule(id) {
+  const r = await apiFetch('/api/fw/rule?id='+id, { method: 'DELETE' });
+  if (r) { toast('Rule deleted','ok'); await loadFw(); }
+}
+async function loadFwLog() {
+  const d = await apiGet('/api/fw/log'); if (!d) return;
+  const el = document.getElementById('fw-log');
+  if (!d.length) { el.textContent = 'No entries.'; return; }
+  el.innerHTML = d.map(l => {
+    const cls = l.includes('ALLOW') ? 'log-allow' : 'log-drop';
+    return `<div class="${cls}">${l}</div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── NAT ───────────────────────────────────────────────────────────────────────
+async function loadNat() {
+  const [s, t] = await Promise.all([apiGet('/api/nat/stats'), apiGet('/api/nat/table')]);
+  if (s) {
+    document.getElementById('ns-active').textContent = s.active;
+    document.getElementById('ns-out').textContent    = s.pkts_out;
+    document.getElementById('ns-in').textContent     = s.pkts_in;
+    document.getElementById('ns-dfw').textContent    = s.dropped_fw;
+    document.getElementById('ns-dnat').textContent   = s.dropped_nat;
+    document.getElementById('ns-tx').textContent     = fmtBytes(s.bytes_tx);
+  }
+  if (t) {
+    const tbl = document.getElementById('nat-tbl');
+    if (!t.length) { tbl.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center">No active sessions</td></tr>'; return; }
+    tbl.innerHTML = t.map(e =>
+      `<tr><td>${e.lan_ip}</td><td>${e.lan_port}</td><td>${e.wan_port}</td>
+       <td>${e.dst_ip}</td><td>${e.dst_port}</td>
+       <td>${badge(e.proto,'blue')}</td><td>${e.age_sec}s</td></tr>`
+    ).join('');
+  }
+}
+async function flushNat() {
+  if (!confirm('Flush all NAT sessions? Active connections will drop.')) return;
+  await doPost('/api/nat/flush');
+  await loadNat();
+}
+
+// ── Port Forward ──────────────────────────────────────────────────────────────
+async function loadPortFwd() {
+  const d = await apiGet('/api/portfwd'); if (!d) return;
+  const tbl = document.getElementById('pf-tbl');
+  if (!d.length) { tbl.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center">No rules</td></tr>'; return; }
+  tbl.innerHTML = d.map(r =>
+    `<tr><td>${r.id}</td><td>${r.en ? badge('ON','green') : badge('OFF','orange')}</td>
+    <td>${badge(r.proto,'blue')}</td><td>${r.ext_port}</td>
+    <td>${r.int_ip}</td><td>${r.int_port}</td>
+    <td><button class="btn btn-danger btn-sm">✕</button></td></tr>`
+  ).join('');
+}
+async function addPortFwd() {
+  await doPost('/api/portfwd', {
+    en: true,
+    proto:    +document.getElementById('pf-proto').value,
+    ext_port: +document.getElementById('pf-ext').value,
+    int_ip:    document.getElementById('pf-int-ip').value,
+    int_port: +document.getElementById('pf-int-port').value,
+  });
+  await loadPortFwd();
+}
+
+// ── VPN ───────────────────────────────────────────────────────────────────────
+async function loadVpn() {
+  const d = await apiGet('/api/vpn/status'); if (!d) return;
+  document.getElementById('vpn-en').checked        = d.enabled;
+  document.getElementById('vpn-server').value      = d.server;
+  document.getElementById('vpn-port').value        = d.port;
+  document.getElementById('vpn-tunnel-ip').value   = d.tunnel_ip;
+  document.getElementById('vpn-ks').checked        = d.kill_switch;
+  document.getElementById('vpn-allowed').value     = '0.0.0.0/0';
+  document.getElementById('vpn-icon').textContent  = d.connected ? '🔐' : '🔓';
+  document.getElementById('vpn-status-title').textContent = d.connected ? 'WireGuard — CONNECTED' : 'WireGuard — DISCONNECTED';
+  document.getElementById('vpn-status-title').style.color = d.connected ? 'var(--green)' : 'var(--red)';
+  document.getElementById('vpn-status-sub').textContent =
+    d.connected ? `Tunnel: ${d.tunnel_ip}  Server: ${d.server}:${d.port}` : 'Tunnel is down';
+}
+async function saveVpn() {
+  await doPost('/api/vpn/config', {
+    enabled:      document.getElementById('vpn-en').checked,
+    server:       document.getElementById('vpn-server').value,
+    port:         +document.getElementById('vpn-port').value,
+    privkey:      document.getElementById('vpn-privkey').value,
+    pubkey:       document.getElementById('vpn-pubkey').value,
+    psk:          document.getElementById('vpn-psk').value,
+    tunnel_ip:    document.getElementById('vpn-tunnel-ip').value,
+    dns:          document.getElementById('vpn-dns').value,
+    allowed_ips:  document.getElementById('vpn-allowed').value,
+    kill_switch:  document.getElementById('vpn-ks').checked,
+  });
+}
+async function vpnConnect()    { await doPost('/api/vpn/connect');    await loadVpn(); }
+async function vpnDisconnect() { await doPost('/api/vpn/disconnect'); await loadVpn(); }
+
+// ── System ────────────────────────────────────────────────────────────────────
+async function loadSysinfo() {
+  const d = await apiGet('/api/sysinfo'); if (!d) return;
+  const rows = Object.entries(d).map(([k,v]) =>
+    `<tr><td style="color:var(--muted);width:200px">${k}</td><td>${v}</td></tr>`
+  ).join('');
+  document.getElementById('sysinfo-tbl').innerHTML = rows;
+}
+
+// ── Auto-refresh overview ─────────────────────────────────────────────────────
+setInterval(() => {
+  if (document.getElementById('page-overview').classList.contains('active')) loadOverview();
+  if (document.getElementById('page-nat').classList.contains('active'))      loadNat();
+}, 5000);
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadOverview();
+</script>
+</body>
+</html>

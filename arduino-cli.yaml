@@ -1,0 +1,8 @@
+board_manager:
+    additional_urls: []
+directories:
+    builtin:
+        libraries: C:\Users\magic\AppData\Local\Arduino15\libraries
+    data: c:\Users\magic\AppData\Local\Arduino15
+    user: c:\esp32_security_tool
+locale: en
