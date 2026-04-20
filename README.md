@@ -1,10 +1,10 @@
 # Custom-Security-esp32Router
 
-## 🔐 Security Purpose (OPSEC Focus)
+##  Security Purpose (OPSEC Focus)
 
 This project is designed to address emerging wireless privacy threats related to Wi-Fi signal exploitation, including techniques often referred to as **Wi-Fi sensing**, **RF imaging**, or attacks like **Wi-Peep**.
 
-### 🧠 The Threat
+###  The Threat
 
 Modern research has shown that Wi-Fi signals can be used for more than just communication. By analyzing how wireless signals interact with physical environments and devices, an attacker may be able to:
 
@@ -17,7 +17,7 @@ These attacks do not require traditional network access and can operate passivel
 
 ---
 
-### 🛡️ Project Goal
+###  Project Goal
 
 This ESP32-based router project aims to provide a **lightweight, deployable defense layer** against these threats by:
 
@@ -28,7 +28,7 @@ This ESP32-based router project aims to provide a **lightweight, deployable defe
 
 ---
 
-### ⚙️ Core Security Concepts
+###  Core Security Concepts
 
 - **Minimize signal exposure**  
   Reduce unnecessary responses that can be used for device fingerprinting or localization.
